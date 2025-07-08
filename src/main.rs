@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::process;
 
 mod reminder;
+mod scheduler;
 
 #[derive(Parser)]
 #[command(name = "tools-rs")]
@@ -19,13 +20,17 @@ enum Commands {
         #[command(subcommand)]
         action: reminder::ReminderAction,
     },
+    #[command(about = "Start notification daemon")]
+    Daemon,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     
     let result = match cli.command {
-        Commands::Reminder { action } => reminder::handle_reminder(action),
+        Commands::Reminder { action } => reminder::handle_reminder(action).await,
+        Commands::Daemon => scheduler::run_daemon().await,
     };
     
     if let Err(e) = result {

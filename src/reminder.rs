@@ -14,6 +14,10 @@ pub enum ReminderAction {
         due: Option<String>,
         #[arg(short, long, help = "Priority level (high, medium, low)", default_value = "medium")]
         priority: String,
+        #[arg(short, long, help = "Cron schedule expression (e.g., '0 9 * * MON-FRI')")]
+        cron: Option<String>,
+        #[arg(short, long, help = "Enable system notifications", action = clap::ArgAction::SetTrue)]
+        notify: bool,
     },
     #[command(about = "List all reminders")]
     List {
@@ -30,6 +34,8 @@ pub enum ReminderAction {
         #[arg(help = "Reminder ID")]
         id: usize,
     },
+    #[command(about = "Test system notification")]
+    TestNotify,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -40,6 +46,8 @@ pub struct Reminder {
     pub due_at: Option<DateTime<Utc>>,
     pub priority: Priority,
     pub completed: bool,
+    pub cron_schedule: Option<String>,
+    pub notify_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -71,9 +79,9 @@ impl Priority {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct RemindersData {
-    reminders: Vec<Reminder>,
-    next_id: usize,
+pub struct RemindersData {
+    pub reminders: Vec<Reminder>,
+    pub next_id: usize,
 }
 
 fn get_data_file() -> PathBuf {
@@ -86,7 +94,7 @@ fn get_data_file() -> PathBuf {
     path
 }
 
-fn load_reminders() -> Result<RemindersData, Box<dyn std::error::Error>> {
+pub fn load_reminders() -> Result<RemindersData, Box<dyn std::error::Error>> {
     let path = get_data_file();
     if !path.exists() {
         return Ok(RemindersData::default());
@@ -101,6 +109,15 @@ fn save_reminders(data: &RemindersData) -> Result<(), Box<dyn std::error::Error>
     let path = get_data_file();
     let content = serde_json::to_string_pretty(data)?;
     fs::write(path, content)?;
+    Ok(())
+}
+
+fn validate_cron_expression(cron_expr: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use cron::Schedule;
+    use std::str::FromStr;
+    
+    Schedule::from_str(cron_expr)
+        .map_err(|e| format!("Invalid cron expression '{}': {}", cron_expr, e))?;
     Ok(())
 }
 
@@ -126,9 +143,9 @@ fn parse_datetime(date_str: &str) -> Result<DateTime<Utc>, Box<dyn std::error::E
     Err(format!("Unable to parse date: {}. Try format like '2024-12-31 15:30'", date_str).into())
 }
 
-pub fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        ReminderAction::Add { message, due, priority } => {
+        ReminderAction::Add { message, due, priority, cron, notify } => {
             let mut data = load_reminders()?;
             
             let due_at = if let Some(due_str) = due {
@@ -139,13 +156,22 @@ pub fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error:
             
             let priority = Priority::from_str(&priority)?;
             
+            let cron_schedule = if let Some(cron_expr) = cron {
+                validate_cron_expression(&cron_expr)?;
+                Some(cron_expr)
+            } else {
+                None
+            };
+            
             let reminder = Reminder {
                 id: data.next_id,
-                message,
+                message: message.clone(),
                 created_at: Utc::now(),
                 due_at,
                 priority,
                 completed: false,
+                cron_schedule,
+                notify_enabled: notify,
             };
             
             data.reminders.push(reminder);
@@ -153,6 +179,10 @@ pub fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error:
             
             save_reminders(&data)?;
             println!("Reminder added with ID: {}", data.next_id - 1);
+            
+            if notify {
+                println!("System notifications enabled. Run 'tools-rs daemon' to start the notification service.");
+            }
         }
         
         ReminderAction::List { pending } => {
@@ -168,19 +198,25 @@ pub fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error:
                 return Ok(());
             }
             
-            println!("{:<3} {:<8} {:<6} {:<19} {:<19} {}", 
-                     "ID", "STATUS", "PRI", "CREATED", "DUE", "MESSAGE");
-            println!("{}", "─".repeat(80));
+            println!("{:<3} {:<8} {:<6} {:<5} {:<19} {:<19} {:<15} {}", 
+                     "ID", "STATUS", "PRI", "NOTIF", "CREATED", "DUE", "CRON", "MESSAGE");
+            println!("{}", "─".repeat(100));
             
             for reminder in reminders {
                 let status = if reminder.completed { "DONE" } else { "PENDING" };
+                let notify_status = if reminder.notify_enabled { "ON" } else { "OFF" };
                 let created = reminder.created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M");
                 let due = reminder.due_at
                     .map(|d| d.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "─".to_string());
+                let cron_display = reminder.cron_schedule
+                    .as_ref()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "─".to_string());
                 
-                println!("{:<3} {:<8} {:<6} {:<19} {:<19} {}", 
-                         reminder.id, status, reminder.priority, created, due, reminder.message);
+                println!("{:<3} {:<8} {:<6} {:<5} {:<19} {:<19} {:<15} {}", 
+                         reminder.id, status, reminder.priority, notify_status, 
+                         created, due, cron_display, reminder.message);
             }
         }
         
@@ -206,6 +242,10 @@ pub fn handle_reminder(action: ReminderAction) -> Result<(), Box<dyn std::error:
             } else {
                 return Err(format!("Reminder with ID {} not found.", id).into());
             }
+        }
+        
+        ReminderAction::TestNotify => {
+            crate::scheduler::test_notification().await?;
         }
     }
     
