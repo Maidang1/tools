@@ -1,11 +1,67 @@
 use crate::reminder::{load_reminders, Reminder};
-use chrono::{Utc, Local};
+use chrono::{Local, Utc};
+use cron::Schedule;
 use notify_rust::Notification;
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
-use tokio_cron_scheduler::{JobScheduler, Job};
-use cron::Schedule;
-use std::str::FromStr;
+use tokio_cron_scheduler::{Job, JobScheduler};
+
+pub async fn start_daemon(run_in_background: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if run_in_background {
+        #[cfg(unix)]
+        {
+            use daemonize::Daemonize;
+            use std::fs::{self, OpenOptions};
+            use std::io::{self, Write};
+            use std::path::PathBuf;
+
+            let mut runtime_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            runtime_dir.push(".tools-rs");
+            fs::create_dir_all(&runtime_dir)?;
+
+            let log_path = runtime_dir.join("daemon.log");
+            let mut stdout = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)?;
+            let stderr = stdout.try_clone()?;
+            let pid_path = runtime_dir.join("daemon.pid");
+
+            println!("Starting notification daemon in background...");
+            io::stdout().flush().ok();
+
+            writeln!(
+                stdout,
+                "[{}] Launching daemon in background",
+                Local::now().format("%Y-%m-%d %H:%M:%S")
+            )
+            .ok();
+            stdout.flush().ok();
+
+            let daemonize = Daemonize::new()
+                .pid_file(pid_path)
+                .stdout(stdout)
+                .stderr(stderr)
+                .chown_pid_file(true);
+
+            if let Err(err) = daemonize.start() {
+                return Err(format!("Failed to daemonize process: {}", err).into());
+            }
+
+            run_daemon().await?;
+            return Ok(());
+        }
+
+        #[cfg(not(unix))]
+        {
+            eprintln!("Background mode is not supported on this platform. Use --foreground instead.");
+            return Err("Background mode is only supported on Unix-like systems.".into());
+        }
+    }
+
+    run_daemon().await
+}
 
 pub async fn run_daemon() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting notification daemon...");

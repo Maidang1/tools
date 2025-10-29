@@ -21,7 +21,10 @@ enum Commands {
         action: reminder::ReminderAction,
     },
     #[command(about = "Start notification daemon")]
-    Daemon,
+    Daemon {
+        #[arg(long, help = "Run daemon in the foreground for debugging")]
+        foreground: bool,
+    },
 }
 
 #[tokio::main]
@@ -30,7 +33,7 @@ async fn main() {
     
     let result = match cli.command {
         Commands::Reminder { action } => reminder::handle_reminder(action).await,
-        Commands::Daemon => scheduler::run_daemon().await,
+        Commands::Daemon { foreground } => scheduler::start_daemon(!foreground).await,
     };
     
     if let Err(e) = result {

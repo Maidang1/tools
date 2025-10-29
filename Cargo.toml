@@ -17,3 +17,6 @@ notify-rust = "4.10"
 cron = "0.12"
 tokio = { version = "1.0", features = ["full"] }
 tokio-cron-scheduler = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+daemonize = "0.4"
