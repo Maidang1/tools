@@ -1,43 +1,39 @@
-use clap::{Parser, Subcommand};
-use std::process;
+mod commands;
+mod services;
+mod types;
 
-mod reminder;
-mod scheduler;
+use clap::Parser;
+use clap::Subcommand;
+use commands::todo::TodoCommand;
+use services::todo_service::TodoService;
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Todo {
+        #[command(subcommand)]
+        command: TodoCommand,
+    },
+}
 
 #[derive(Parser)]
-#[command(name = "tools-rs")]
-#[command(about = "A collection of useful command-line tools")]
-#[command(version = "0.1.0")]
+#[command(name = "milk-cap")]
+#[command(about = "un tools")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    #[command(about = "Reminder management tool")]
-    Reminder {
-        #[command(subcommand)]
-        action: reminder::ReminderAction,
-    },
-    #[command(about = "Start notification daemon")]
-    Daemon {
-        #[arg(long, help = "Run daemon in the foreground for debugging")]
-        foreground: bool,
-    },
-}
-
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
-    
-    let result = match cli.command {
-        Commands::Reminder { action } => reminder::handle_reminder(action).await,
-        Commands::Daemon { foreground } => scheduler::start_daemon(!foreground).await,
-    };
-    
-    if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        process::exit(1);
+    match &cli.command {
+        Commands::Todo { command } => {
+            let mut todo_service = TodoService::new();
+
+            match command {
+                TodoCommand::AddTodo { name } => todo_service.add_todo(name),
+                TodoCommand::DeleteTodo { id } => todo_service.delete_todo(*id),
+                TodoCommand::List => todo_service.list_todos(),
+            }
+        }
     }
 }
