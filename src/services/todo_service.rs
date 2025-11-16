@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 pub struct TodoService {
     todo_data_path: PathBuf,
-    todos: Vec<TodoItem>,
+    pub todos: Vec<TodoItem>,
 }
 
 impl TodoService {
@@ -44,7 +44,7 @@ impl TodoService {
 }
 
 impl TodoService {
-    fn save_to_file(&self) {
+    pub fn save_to_file(&self) {
         let json_data = serde_json::to_string_pretty(&self.todos).unwrap_or_else(|_| "[]".to_string());
         fs::write(&self.todo_data_path, json_data).expect("Failed to write todos to file");
     }

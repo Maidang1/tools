@@ -5,4 +5,5 @@ pub enum TodoCommand {
     AddTodo { name: String },
     DeleteTodo { id: u32 },
     List,
+    Interactive,
 }

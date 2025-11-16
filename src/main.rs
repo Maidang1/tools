@@ -1,6 +1,7 @@
 mod commands;
 mod services;
 mod types;
+mod ui;
 
 use clap::Parser;
 use clap::Subcommand;
@@ -33,6 +34,13 @@ fn main() {
                 TodoCommand::AddTodo { name } => todo_service.add_todo(name),
                 TodoCommand::DeleteTodo { id } => todo_service.delete_todo(*id),
                 TodoCommand::List => todo_service.list_todos(),
+                TodoCommand::Interactive => {
+                    let mut app = ui::App::new();
+                    match app.run() {
+                        Ok(_) => {}
+                        Err(e) => eprintln!("Error running UI: {}", e),
+                    }
+                }
             }
         }
     }
