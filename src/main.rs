@@ -6,7 +6,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, List, ListItem, Gauge, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Gauge, Paragraph, Sparkline};
 use tracing::{error, info};
 use walkdir::WalkDir;
 
@@ -27,6 +27,7 @@ struct App {
     cmd_tx: Sender<AppCommand>,
     evt_rx: Receiver<AppEvent>,
     last_tick: Instant,
+    wave: Vec<u64>,
 }
 
 impl App {
@@ -42,6 +43,7 @@ impl App {
             cmd_tx,
             evt_rx,
             last_tick: Instant::now(),
+            wave: vec![0; 80],
         }
     }
 }
@@ -106,23 +108,89 @@ fn run() -> Result<()> {
 
         terminal.draw(|f| {
             let size = f.size();
-            let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(3), Constraint::Min(5), Constraint::Length(3)].as_ref()).split(size);
-            let top = Paragraph::new(match app.playing { Some(i) => format!("正在播放: {}", app.tracks[i].title.clone().unwrap_or_else(|| app.tracks[i].path.display().to_string())), None => "未播放".to_string() }).block(Block::default().borders(Borders::ALL).title("当前"));
-            f.render_widget(top, chunks[0]);
+            let v_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(1)].as_ref())
+                .split(size);
 
-            let items: Vec<ListItem> = app.tracks.iter().enumerate().map(|(i, t)| {
-                let text = t.title.clone().unwrap_or_else(|| t.path.display().to_string());
-                let prefix = if Some(i) == app.playing { "▶ " } else { "  " };
-                ListItem::new(format!("{}{}", prefix, text))
-            }).collect();
-            let list = List::new(items).block(Block::default().borders(Borders::ALL).title("曲目")).highlight_symbol("> ");
-            f.render_stateful_widget(list, chunks[1], &mut ui::list_state(app.selected));
+            let top = Paragraph::new(match app.playing {
+                Some(i) => format!(
+                    "正在播放: {}",
+                    app.tracks[i]
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| app.tracks[i].path.display().to_string())
+                ),
+                None => "未播放".to_string(),
+            })
+            .block(Block::default().borders(Borders::ALL).title("当前"));
+            f.render_widget(top, v_chunks[0]);
 
-            let progress = match app.total { Some(total) => {
-                let ratio = app.position.as_secs_f64() / total.as_secs_f64();
-                Gauge::default().block(Block::default().borders(Borders::ALL).title("进度")).gauge_style(Style::default().fg(Color::Cyan)).ratio(ratio.clamp(0.0, 1.0)).label(format!("{}/{}", fmt_d(app.position), fmt_d(total)))
-            } None => Gauge::default().block(Block::default().borders(Borders::ALL).title("进度")).gauge_style(Style::default().fg(Color::Cyan)).ratio(0.0).label("--/--") };
-            f.render_widget(progress, chunks[2]);
+            let h_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(35), Constraint::Percentage(65)].as_ref())
+                .split(v_chunks[1]);
+
+            let items: Vec<ListItem> = app
+                .tracks
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let text = t.title.clone().unwrap_or_else(|| t.path.display().to_string());
+                    let prefix = if Some(i) == app.playing { "▶ " } else { "  " };
+                    ListItem::new(format!("{}{}", prefix, text))
+                })
+                .collect();
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("曲目"))
+                .highlight_symbol("> ");
+            f.render_stateful_widget(list, h_chunks[0], &mut ui::list_state(app.selected));
+
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(2)].as_ref())
+                .split(h_chunks[1]);
+
+            let detail = Paragraph::new(match app.playing {
+                Some(i) => format!(
+                    "曲目: {}\n状态: {:?}  音量: {:.0}%",
+                    app.tracks[i]
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| app.tracks[i].path.display().to_string()),
+                    app.status,
+                    app.volume * 100.0
+                ),
+                None => format!("曲目: --\n状态: {:?}  音量: {:.0}%", app.status, app.volume * 100.0),
+            })
+            .block(Block::default().borders(Borders::ALL).title("详情"));
+            f.render_widget(detail, right_chunks[0]);
+
+            let progress = match app.total {
+                Some(total) => {
+                    let ratio = app.position.as_secs_f64() / total.as_secs_f64();
+                    Gauge::default()
+                        .block(Block::default().borders(Borders::ALL).title("进度"))
+                        .gauge_style(Style::default().fg(Color::Cyan))
+                        .ratio(ratio.clamp(0.0, 1.0))
+                        .label(format!("{}/{}", fmt_d(app.position), fmt_d(total)))
+                }
+                None => Gauge::default()
+                    .block(Block::default().borders(Borders::ALL).title("进度"))
+                    .gauge_style(Style::default().fg(Color::Cyan))
+                    .ratio(0.0)
+                    .label("--/--"),
+            };
+            f.render_widget(progress, right_chunks[1]);
+
+            let spark = Sparkline::default()
+                .block(Block::default().borders(Borders::ALL).title("波形"))
+                .data(&app.wave)
+                .style(Style::default().fg(Color::Magenta));
+            f.render_widget(spark, right_chunks[2]);
+
+            let help = Paragraph::new("q: 退出, j/k,↓/↑: 移动, Enter: 播放, Space: 暂停/播放, [: 上一曲, ]: 下一曲, +: 音量加, -: 音量减").alignment(Alignment::Center);
+            f.render_widget(help, v_chunks[2]);
         })?;
 
         let timeout = tick_rate.saturating_sub(app.last_tick.elapsed());
@@ -169,6 +237,13 @@ fn run() -> Result<()> {
                 }
             }
         }
+        let sample = if app.status == PlaybackStatus::Playing {
+            let t = app.position.as_secs_f64();
+            let v = ((t * 6.0).sin() * 0.5 + 0.5) * 100.0 * app.volume.min(1.0) as f64;
+            v.clamp(0.0, 100.0) as u64
+        } else { 0 };
+        if let Some(_) = app.wave.first() { app.wave.remove(0); }
+        app.wave.push(sample);
         app.last_tick = Instant::now();
     }
 

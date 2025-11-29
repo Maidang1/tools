@@ -9,7 +9,7 @@ pub struct Track {
     pub title: Option<String>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PlaybackStatus {
     Stopped,
     Paused,
