@@ -3,17 +3,23 @@ name = "tools-rs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "tools_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tools-rs"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.0", features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-dirs = "5.0"
-ratatui = { version = "0.28", features = ["crossterm"] }
-crossterm = { version = "0.28", features = ["event-stream"] }
-# chrono = { version = "0.4", features = ["serde"] }
+ratatui = "0.26"
+crossterm = "0.27"
+rodio = "0.17"
+walkdir = "2.4"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "ansi", "env-filter"] }
 
-[target.'cfg(unix)'.dependencies]
+[dev-dependencies]
+proptest = "1.4"
