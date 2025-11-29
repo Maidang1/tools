@@ -54,13 +54,11 @@ impl TodoService {
         let new_todo = TodoItem::new(next_id, text.to_string(), format!("Todo {}", next_id));
         self.todos.push(new_todo);
         self.save_to_file();
-        println!("Added todo: {}", text);
     }
 
     pub fn delete_todo(&mut self, id: u32) {
         self.todos.retain(|todo| todo.id != id);
         self.save_to_file();
-        println!("Deleted todo with id: {}", id);
     }
 
     pub fn list_todos(&self) {
