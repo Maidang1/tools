@@ -3,6 +3,10 @@ name = "tools-rs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "tools_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tools-rs"
 path = "src/main.rs"
@@ -16,3 +20,6 @@ anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "ansi", "env-filter"] }
+
+[dev-dependencies]
+proptest = "1.4"
